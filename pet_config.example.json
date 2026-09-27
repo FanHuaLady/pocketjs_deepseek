@@ -1,0 +1,15 @@
+{
+  "idleSeconds": 60,
+  "responseMultiplier": 3,
+  "device": {
+    "url": "http://192.168.9.107:17890"
+  },
+  "ai": {
+    "apiUrl": "https://api.deepseek.com/chat/completions",
+    "apiKey": "replace-with-your-api-key",
+    "model": "deepseek-chat"
+  },
+  "web": {
+    "port": 8080
+  }
+}

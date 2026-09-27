@@ -1,0 +1,29 @@
+{
+  "extends": "./third_party/pocketjs/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": [],
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@pocketjs/framework": [
+        "./third_party/pocketjs/framework/src/index.ts"
+      ],
+      "@pocketjs/framework/components": [
+        "./third_party/pocketjs/framework/src/components.ts"
+      ],
+      "@pocketjs/framework/input": [
+        "./third_party/pocketjs/framework/src/input-api.ts"
+      ],
+      "@pocketjs/framework/lifecycle": [
+        "./third_party/pocketjs/framework/src/lifecycle.ts"
+      ],
+      "solid-js": [
+        "./third_party/pocketjs/node_modules/solid-js"
+      ]
+    }
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx"
+  ]
+}

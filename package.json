@@ -1,0 +1,8 @@
+{
+  "name": "pocketjs-rv1106-gif",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "gifuct-js": "2.1.2"
+  }
+}

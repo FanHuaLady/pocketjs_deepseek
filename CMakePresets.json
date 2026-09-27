@@ -1,0 +1,21 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "rv1106-release",
+      "displayName": "RV1106 Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/rv1106-release",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/rv1106.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "rv1106-release",
+      "configurePreset": "rv1106-release"
+    }
+  ]
+}

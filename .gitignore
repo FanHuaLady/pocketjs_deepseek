@@ -1,0 +1,35 @@
+# Build directories and CMake output
+build/
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Makefile
+*.cmake.user
+
+# Native compiler and linker artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.elf
+*.bin
+*.pak
+pocket_host
+
+# Local runtime output
+*.log
+run.log
+*.pid
+
+# JavaScript dependencies and generated PocketJS files
+node_modules/
+pet_config.json
+third_party/pocketjs/node_modules/
+third_party/pocketjs/.cache/
+third_party/pocketjs/framework/src/styles.generated.ts
+third_party/pocketjs/engine/ui-cabi/target/
+third_party/quickjs/.obj/
+third_party/quickjs/qjs
+third_party/quickjs/libquickjs.a
