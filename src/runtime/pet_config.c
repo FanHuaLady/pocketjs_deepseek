@@ -10,8 +10,8 @@
 void pet_config_defaults(PetAnimationConfig *config)
 {
     if (config == NULL) return;
-    config->idle_seconds = 60;
-    config->response_multiplier = 3.0;
+    config->idle_seconds = 45;
+    config->response_multiplier = 2.0;
 }
 
 static int read_config(const char *path, char *buffer, size_t capacity)

@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #define PET_COMMAND_CAPACITY 512
+#define PET_EVENT_CAPACITY 512
 #define PET_HEADER_CAPACITY 8192
 #define PET_COMMAND_BODY_CAPACITY 4096
 #define PET_AUDIO_BODY_CAPACITY (1024 * 1024)
@@ -22,8 +23,11 @@ static pthread_t server_thread;
 static pthread_mutex_t command_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t audio_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t voice_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t event_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char pending_command[PET_COMMAND_CAPACITY];
+static char pending_event[PET_EVENT_CAPACITY];
 static int has_command;
+static int has_event;
 static uint8_t *pending_audio;
 static size_t pending_audio_length;
 static unsigned pending_audio_rate;
@@ -39,8 +43,8 @@ static int has_voice;
 static int listen_fd = -1;
 static volatile int server_running;
 static PetAnimationConfig animation_config = {
-    .idle_seconds = 60,
-    .response_multiplier = 3.0,
+    .idle_seconds = 45,
+    .response_multiplier = 2.0,
 };
 
 void pet_control_set_animation_config(const PetAnimationConfig *config)
@@ -125,6 +129,21 @@ int pet_control_queue_voice(uint8_t *data, size_t length, unsigned rate, unsigne
     if (pending_voice_id == 0) pending_voice_id = 1;
     has_voice = 1;
     pthread_mutex_unlock(&voice_mutex);
+    return 0;
+}
+
+int pet_control_queue_event(const char *event_json)
+{
+    size_t length;
+
+    if (event_json == NULL || event_json[0] == '\0') return -1;
+    length = strlen(event_json);
+    if (length >= sizeof(pending_event)) length = sizeof(pending_event) - 1;
+    pthread_mutex_lock(&event_mutex);
+    memcpy(pending_event, event_json, length);
+    pending_event[length] = '\0';
+    has_event = 1;
+    pthread_mutex_unlock(&event_mutex);
     return 0;
 }
 
@@ -383,6 +402,24 @@ static void handle_voice_request(int fd)
     free(body);
 }
 
+static void handle_event_request(int fd)
+{
+    char body[PET_EVENT_CAPACITY];
+
+    pthread_mutex_lock(&event_mutex);
+    if (!has_event) {
+        pthread_mutex_unlock(&event_mutex);
+        send_empty_response(fd, 204);
+        return;
+    }
+    snprintf(body, sizeof(body), "%s", pending_event);
+    pending_event[0] = '\0';
+    has_event = 0;
+    pthread_mutex_unlock(&event_mutex);
+
+    send_response(fd, 200, body);
+}
+
 static void handle_client(int fd)
 {
     char request[PET_HEADER_CAPACITY + 1];
@@ -424,6 +461,10 @@ static void handle_client(int fd)
 
     if (strcmp(method, "GET") == 0 && strcmp(path, "/voice") == 0) {
         handle_voice_request(fd);
+        return;
+    }
+    if (strcmp(method, "GET") == 0 && strcmp(path, "/event") == 0) {
+        handle_event_request(fd);
         return;
     }
     if (strcmp(method, "POST") != 0) {

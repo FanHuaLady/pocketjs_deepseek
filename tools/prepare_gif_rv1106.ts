@@ -69,8 +69,11 @@ function nextPowerOfTwo(value: number): number {
   return result;
 }
 
-function chooseGrid(frameCount: number): { cellSize: number; cols: number; rows: number } {
-  for (const cellSize of [64, 32, 16]) {
+function findGrid(
+  frameCount: number,
+  cellSizes: number[],
+): { cellSize: number; cols: number; rows: number } | undefined {
+  for (const cellSize of cellSizes) {
     for (let cols = 1; cols * cellSize <= 512; cols *= 2) {
       const rows = Math.ceil(frameCount / cols);
       if (nextPowerOfTwo(rows) === rows && rows * cellSize <= 512) {
@@ -78,11 +81,30 @@ function chooseGrid(frameCount: number): { cellSize: number; cols: number; rows:
       }
     }
   }
-  throw new Error(`Cannot fit ${frameCount} frames into a PocketJS atlas`);
+  return undefined;
+}
+
+function chooseFramePlan(idealFrameCount: number): {
+  frameCount: number;
+  grid: { cellSize: number; cols: number; rows: number };
+} {
+  const direct = findGrid(idealFrameCount, [128, 64]);
+  if (direct) return { frameCount: idealFrameCount, grid: direct };
+
+  for (let frameCount = idealFrameCount - 1; frameCount >= 1; frameCount--) {
+    const grid = findGrid(frameCount, [128, 64]);
+    if (grid) return { frameCount, grid };
+  }
+
+  const fallback = findGrid(idealFrameCount, [32, 16]);
+  if (fallback) return { frameCount: idealFrameCount, grid: fallback };
+  throw new Error(`Cannot fit ${idealFrameCount} frames into a PocketJS atlas`);
 }
 
 function renderAtlas(frames: GifFrame[], width: number, height: number, frameCount: number, totalMs: number) {
-  const grid = chooseGrid(frameCount);
+  const plan = chooseFramePlan(frameCount);
+  frameCount = plan.frameCount;
+  const { grid } = plan;
   const { cellSize, cols: columns, rows } = grid;
   const atlas = createCanvas(
     nextPowerOfTwo(columns * cellSize),
@@ -170,7 +192,7 @@ for (const sourceName of files) {
     description: metadata.description,
     durationMs: totalMs,
   });
-  console.log(`${metadata.id}: ${frames.length} source frames, ${totalMs}ms -> ${result.atlas.width}x${result.atlas.height}, ${frameCount} frames`);
+  console.log(`${metadata.id}: ${frames.length} source frames, ${totalMs}ms -> ${result.atlas.width}x${result.atlas.height}, ${result.frames} frames`);
 }
 
 await Bun.write(resolve(outputDir, "sprites.json"), `${JSON.stringify(spriteManifest, null, 2)}\n`);

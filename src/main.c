@@ -21,6 +21,16 @@
 #define FPS_SAMPLE_NS 1000000000LL
 #define HOST_STATS_OPCODE_FPS 1
 #define TOUCH_BORDER_PX 6
+#define TOUCH_CENTER_MARGIN_PERCENT 15
+#define HEAD_PAT_AI_EVENT_DELAY_MS 1400
+#define STRINGIFY_DETAIL(value) #value
+#define STRINGIFY(value) STRINGIFY_DETAIL(value)
+
+typedef enum touch_zone {
+    TOUCH_ZONE_NONE = 0,
+    TOUCH_ZONE_HEAD_PAT,
+    TOUCH_ZONE_VOICE,
+} TouchZone;
 
 static volatile sig_atomic_t stop_requested = 0;
 
@@ -186,6 +196,27 @@ static void draw_touch_border(
     }
 }
 
+static TouchZone classify_touch_zone(
+    int x,
+    int y,
+    uint32_t width,
+    uint32_t height
+)
+{
+    uint32_t left;
+    uint32_t right;
+
+    if (width == 0 || height == 0 || x < 0 || y < 0) {
+        return TOUCH_ZONE_NONE;
+    }
+    left = width * TOUCH_CENTER_MARGIN_PERCENT / 100U;
+    right = width - left;
+    if ((uint32_t)x < left || (uint32_t)x >= right || (uint32_t)y >= height) {
+        return TOUCH_ZONE_NONE;
+    }
+    return (uint32_t)y < height / 2U ? TOUCH_ZONE_HEAD_PAT : TOUCH_ZONE_VOICE;
+}
+
 int main(int argc, char **argv)
 {
     static const uint8_t empty_pack[1] = {0};
@@ -235,6 +266,7 @@ int main(int argc, char **argv)
     int profiling;
     int previous_touch_down = 0;
     int touch_hit = 0;
+    TouchZone active_touch_zone = TOUCH_ZONE_NONE;
     int first_render = 1;
     int stats_bridge_enabled = 0;
     int pet_control_started = 0;
@@ -388,27 +420,47 @@ int main(int argc, char **argv)
             frame_input.touch_hit = 0;
         }
         if (frame_input.touch_down && !previous_touch_down) {
-            pet_control_push_command("{\"phase\":\"thinking\"}");
-            if (rv1106_mic_record_start(16000, 1, 15) != 0) {
-                HOST_LOG_WARNF("mic", "%s", "touch recording did not start");
+            active_touch_zone = classify_touch_zone(
+                frame_input.touch_x,
+                frame_input.touch_y,
+                framebuffer.logical_width,
+                framebuffer.logical_height
+            );
+            if (active_touch_zone == TOUCH_ZONE_HEAD_PAT) {
+                pet_control_push_command(
+                    "{\"phase\":\"response\",\"animation\":\"head_pat\",\"mode\":\"once\"}"
+                );
+            } else if (active_touch_zone == TOUCH_ZONE_VOICE) {
+                pet_control_push_command("{\"phase\":\"thinking\"}");
+                if (rv1106_mic_record_start(16000, 1, 15) != 0) {
+                    HOST_LOG_WARNF("mic", "%s", "touch recording did not start");
+                }
             }
         } else if (!frame_input.touch_down && previous_touch_down) {
-            Rv1106MicCapture capture;
+            if (active_touch_zone == TOUCH_ZONE_HEAD_PAT) {
+                pet_control_queue_event(
+                    "{\"message\":\"主人摸了摸你的头。请用你的人设自然回应，不要继续播放摸头动作，优先表达喜欢。\","
+                    "\"delayMs\":" STRINGIFY(HEAD_PAT_AI_EVENT_DELAY_MS) "}"
+                );
+            } else if (active_touch_zone == TOUCH_ZONE_VOICE) {
+                Rv1106MicCapture capture;
 
-            if (rv1106_mic_record_stop(&capture) == 0) {
-                if (pet_control_queue_voice(
-                        capture.data,
-                        capture.length,
-                        capture.sample_rate,
-                        capture.channels
-                    ) != 0) {
-                    rv1106_mic_capture_free(&capture);
+                if (rv1106_mic_record_stop(&capture) == 0) {
+                    if (pet_control_queue_voice(
+                            capture.data,
+                            capture.length,
+                            capture.sample_rate,
+                            capture.channels
+                        ) != 0) {
+                        rv1106_mic_capture_free(&capture);
+                        pet_control_push_command("{\"phase\":\"idle\"}");
+                    }
+                } else {
+                    HOST_LOG_WARNF("mic", "%s", "touch recording discarded");
                     pet_control_push_command("{\"phase\":\"idle\"}");
                 }
-            } else {
-                HOST_LOG_WARNF("mic", "%s", "touch recording discarded");
-                pet_control_push_command("{\"phase\":\"idle\"}");
             }
+            active_touch_zone = TOUCH_ZONE_NONE;
         }
         previous_touch_down = frame_input.touch_down;
 

@@ -5,7 +5,7 @@ const projectDir = resolve(import.meta.dir, "..");
 const configPath = resolve(projectDir, process.env.PET_CONFIG ?? "pet_config.json");
 let fileConfig: {
   device?: { url?: string };
-  ai?: { apiUrl?: string; apiKey?: string; model?: string };
+  ai?: { apiUrl?: string; apiKey?: string; model?: string; personaPrompt?: string };
   asr?: { provider?: string; apiUrl?: string; apiKey?: string; model?: string; seconds?: number; language?: string };
   tts?: { provider?: string; apiKey?: string; model?: string; voice?: string };
   web?: { port?: number };
@@ -25,6 +25,7 @@ const deviceUrl = process.env.PET_DEVICE_URL ?? fileConfig.device?.url ?? "http:
 const llmUrl = process.env.LLM_API_URL ?? fileConfig.ai?.apiUrl ?? "https://api.deepseek.com/chat/completions";
 const llmKey = process.env.LLM_API_KEY ?? fileConfig.ai?.apiKey;
 const llmModel = process.env.LLM_MODEL ?? fileConfig.ai?.model ?? "deepseek-chat";
+const personaPrompt = process.env.PERSONA_PROMPT ?? fileConfig.ai?.personaPrompt ?? "";
 const asrProvider = process.env.ASR_PROVIDER ?? fileConfig.asr?.provider ?? "qwen";
 const asrUrl = process.env.ASR_API_URL ??
   fileConfig.asr?.apiUrl ??
@@ -43,7 +44,7 @@ const assetGuide = registry.assets
   .map((asset) => `- ${asset.id}: ${asset.description}; mode=${asset.kind}`)
   .join("\n");
 
-const systemPrompt = `You are a desktop pet controller.
+const systemPrompt = `${personaPrompt ? `${personaPrompt}\n\n` : ""}You are a desktop pet controller.
 Reply with valid JSON only: {"reply":"short Chinese reply","animation":"asset id","mode":"loop|once"}.
 Choose exactly one animation from this allowlist:
 ${assetGuide}
@@ -124,6 +125,17 @@ async function fetchQueuedVoiceFromDevice() {
     channels,
     data: new Int16Array(await response.arrayBuffer()),
   };
+}
+
+async function fetchQueuedEventFromDevice() {
+  const response = await fetch(`${deviceUrl}/event`, { method: "GET" });
+  if (response.status === 204) return undefined;
+  if (!response.ok) throw new Error(`device event returned HTTP ${response.status}`);
+  return await response.json() as { message?: string; delayMs?: number };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function fourcc(view: DataView, offset: number): number {
@@ -361,7 +373,10 @@ const body=await r.json(); if(body.transcript) message.value=body.transcript;
 reply.textContent=JSON.stringify(body,null,2)};
 </script>`;
 
-async function chatWithPet(message: string) {
+async function chatWithPet(
+  message: string,
+  options: { forbiddenAnimations?: string[]; fallbackAnimation?: string } = {},
+) {
   if (!llmKey) {
     return { body: { error: "set LLM_API_KEY first" }, status: 500 };
   }
@@ -399,7 +414,11 @@ async function chatWithPet(message: string) {
     }
 
     const command = jsonFromText(content);
-    const asset = command.animation ? assets.get(command.animation) : undefined;
+    const forbiddenAnimations = new Set(options.forbiddenAnimations ?? []);
+    let asset = command.animation ? assets.get(command.animation) : undefined;
+    if (asset && forbiddenAnimations.has(asset.id)) {
+      asset = options.fallbackAnimation ? assets.get(options.fallbackAnimation) : undefined;
+    }
     if (!asset) throw new Error("invalid animation id");
     const reply = typeof command.reply === "string" ? command.reply : "";
     let ttsError = "";
@@ -447,6 +466,29 @@ async function pollQueuedVoice() {
   }
 }
 
+let eventPollBusy = false;
+async function pollQueuedEvent() {
+  if (eventPollBusy) return;
+  eventPollBusy = true;
+  try {
+    const event = await fetchQueuedEventFromDevice();
+    if (!event?.message) return;
+    const delayMs = Math.max(0, Math.min(10000, Math.round(event.delayMs ?? 0)));
+    if (delayMs > 0) await sleep(delayMs);
+    await chatWithPet(event.message, {
+      forbiddenAnimations: ["head_pat"],
+      fallbackAnimation: "love",
+    });
+  } catch (error) {
+    const text = String(error);
+    if (!text.includes("ECONNREFUSED") && !text.includes("fetch failed")) {
+      console.warn(`event poll failed: ${text}`);
+    }
+  } finally {
+    eventPollBusy = false;
+  }
+}
+
 const server = Bun.serve({
   port,
   async fetch(request) {
@@ -480,4 +522,5 @@ console.log(`pet server: http://0.0.0.0:${server.port}`);
 console.log(`device: ${deviceUrl}`);
 setInterval(() => {
   void pollQueuedVoice();
+  void pollQueuedEvent();
 }, 1000);

@@ -96,10 +96,10 @@
     "step": 4
   },
   "processed/gaming.png": {
-    "cols": 16,
-    "rows": 2,
-    "frames": 23,
-    "step": 2
+    "cols": 4,
+    "rows": 4,
+    "frames": 16,
+    "step": 3
   },
   "processed/angry.png": {
     "cols": 4,
@@ -120,10 +120,10 @@
     "step": 2
   },
   "processed/nodding.png": {
-    "cols": 16,
-    "rows": 2,
-    "frames": 23,
-    "step": 2
+    "cols": 4,
+    "rows": 4,
+    "frames": 16,
+    "step": 3
   },
   "processed/thumbs_up.png": {
     "cols": 4,
@@ -168,9 +168,9 @@
     "step": 2
   },
   "processed/head_pat.png": {
-    "cols": 16,
-    "rows": 2,
-    "frames": 19,
+    "cols": 4,
+    "rows": 4,
+    "frames": 16,
     "step": 2
   },
   "processed/alarm.png": {
@@ -204,9 +204,9 @@
     "step": 2
   },
   "processed/hungry.png": {
-    "cols": 16,
-    "rows": 2,
-    "frames": 19,
+    "cols": 4,
+    "rows": 4,
+    "frames": 16,
     "step": 2
   }
 }
