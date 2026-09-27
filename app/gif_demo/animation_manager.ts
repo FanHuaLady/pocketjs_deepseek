@@ -1,4 +1,5 @@
 import { createSignal, type Accessor } from "solid-js";
+import { createWavPlayer, type WavPcm, type WavPlayer } from "@pocketjs/framework/audio";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { PET_ASSETS } from "../../assets/processed/pet-assets.ts";
 
@@ -25,8 +26,61 @@ export type PetCommand = {
 };
 
 type PetHost = { poll?: () => string };
+type PetAudioHost = {
+  poll?: () => string | undefined;
+  read?: (id: number) => ArrayBuffer | undefined;
+};
+type PetAudioMetadata = {
+  id?: number;
+  sampleRate?: number;
+  channels?: number;
+  bytes?: number;
+};
 
 const assets = new Map<string, PetAsset>(PET_ASSETS.map((asset) => [asset.id, asset]));
+
+function createSpeechPlayer(): { pump: () => void } {
+  const transport = (globalThis as unknown as { petAudio?: PetAudioHost }).petAudio;
+  const player: WavPlayer = createWavPlayer();
+  let lastAudioId = 0;
+
+  function readNextPcm(): WavPcm | undefined {
+    const raw = transport?.poll?.();
+    if (!raw) return undefined;
+    let metadata: PetAudioMetadata;
+    try {
+      metadata = JSON.parse(raw) as PetAudioMetadata;
+    } catch {
+      return undefined;
+    }
+    if (
+      !metadata.id ||
+      metadata.id === lastAudioId ||
+      !metadata.sampleRate ||
+      !metadata.channels
+    ) {
+      return undefined;
+    }
+    const buffer = transport?.read?.(metadata.id);
+    if (!buffer) return undefined;
+    lastAudioId = metadata.id;
+    const data = new Int16Array(buffer);
+    return {
+      sampleRate: metadata.sampleRate,
+      channels: metadata.channels,
+      frames: Math.floor(data.length / metadata.channels),
+      data,
+    };
+  }
+
+  return {
+    pump(): void {
+      const pcm = readNextPcm();
+      if (pcm && player.loadPcm(pcm)) player.play();
+      player.pump();
+    },
+  };
+}
 
 export function createAnimationManager(hostPet: PetHost | undefined): { sprite: Accessor<string> } {
   const firstIdle = assets.get(IDLE_ANIMATIONS[0])!;
@@ -46,6 +100,7 @@ export function createAnimationManager(hostPet: PetHost | undefined): { sprite: 
   let thinkingIndex = 0;
   let idleElapsedFrames = 0;
   let responseRemainingFrames = 0;
+  const speechPlayer = createSpeechPlayer();
 
   function selectAnimation(id: string): PetAsset | undefined {
     const asset = assets.get(id);
@@ -106,6 +161,7 @@ export function createAnimationManager(hostPet: PetHost | undefined): { sprite: 
         // Ignore malformed commands and keep the current animation.
       }
     }
+    speechPlayer.pump();
 
     if (phase === "response" && responseRemainingFrames > 0) {
       responseRemainingFrames -= 1;

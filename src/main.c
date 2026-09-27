@@ -2,7 +2,9 @@
 #include "device/touchscreen.h"
 #include "pocket_runtime.h"
 #include "runtime/guest_file.h"
+#include "runtime/host_globals.h"
 #include "runtime/host_log.h"
+#include "runtime/mic_host.h"
 #include "runtime/pet_config.h"
 #include "runtime/pet_host.h"
 #include "runtime/pocket_extension.h"
@@ -12,11 +14,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define TARGET_FRAME_NS 16666667LL
 #define FPS_SAMPLE_NS 1000000000LL
 #define HOST_STATS_OPCODE_FPS 1
+#define TOUCH_BORDER_PX 6
 
 static volatile sig_atomic_t stop_requested = 0;
 
@@ -150,6 +154,38 @@ static void print_phase_stats(
     );
 }
 
+static void draw_touch_border(
+    uint8_t *bgra,
+    uint32_t width,
+    uint32_t height,
+    uint32_t stride
+)
+{
+    uint32_t x;
+    uint32_t y;
+    uint32_t thickness = TOUCH_BORDER_PX;
+
+    if (bgra == NULL || width == 0 || height == 0 || stride < width * 4U) {
+        return;
+    }
+    if (thickness * 2U > width) thickness = width / 2U;
+    if (thickness * 2U > height) thickness = height / 2U;
+    if (thickness == 0) thickness = 1;
+
+    for (y = 0; y < height; y++) {
+        int border_y = y < thickness || y >= height - thickness;
+        for (x = 0; x < width; x++) {
+            if (border_y || x < thickness || x >= width - thickness) {
+                uint8_t *pixel = bgra + (size_t)y * stride + (size_t)x * 4U;
+                pixel[0] = 255;
+                pixel[1] = 255;
+                pixel[2] = 255;
+                pixel[3] = 255;
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     static const uint8_t empty_pack[1] = {0};
@@ -169,6 +205,8 @@ int main(int argc, char **argv)
         .touch_hit = 0,
     };
     const uint8_t *rendered;
+    uint8_t *touch_overlay = NULL;
+    size_t touch_overlay_capacity = 0;
     uint8_t *script;
     uint8_t *pack = (uint8_t *)empty_pack;
     size_t script_length;
@@ -269,7 +307,7 @@ int main(int argc, char **argv)
         }
     }
 
-    pocket_runtime_set_global_installer(rv1106_pet_install);
+    pocket_runtime_set_global_installer(rv1106_install_globals);
     if (profiling) {
         profile_boot_start_ns = monotonic_ns();
     }
@@ -320,6 +358,7 @@ int main(int argc, char **argv)
         long long frame_start_ns = -1;
         long long phase_start_ns = -1;
         long long now_ns;
+        int touch_visual_changed;
 
         if (profiling) {
             frame_start_ns = monotonic_ns();
@@ -335,6 +374,7 @@ int main(int argc, char **argv)
         frame_input.touch_down = touchscreen_is_down(&touchscreen);
         frame_input.touch_x = touchscreen_x(&touchscreen);
         frame_input.touch_y = touchscreen_y(&touchscreen);
+        touch_visual_changed = frame_input.touch_down != previous_touch_down;
         if (frame_input.touch_down && !previous_touch_down) {
             touch_hit = pocket_runtime_hit_test_bounds(
                 (float)frame_input.touch_x,
@@ -346,6 +386,29 @@ int main(int argc, char **argv)
         } else if (!frame_input.touch_down) {
             touch_hit = 0;
             frame_input.touch_hit = 0;
+        }
+        if (frame_input.touch_down && !previous_touch_down) {
+            pet_control_push_command("{\"phase\":\"thinking\"}");
+            if (rv1106_mic_record_start(16000, 1, 15) != 0) {
+                HOST_LOG_WARNF("mic", "%s", "touch recording did not start");
+            }
+        } else if (!frame_input.touch_down && previous_touch_down) {
+            Rv1106MicCapture capture;
+
+            if (rv1106_mic_record_stop(&capture) == 0) {
+                if (pet_control_queue_voice(
+                        capture.data,
+                        capture.length,
+                        capture.sample_rate,
+                        capture.channels
+                    ) != 0) {
+                    rv1106_mic_capture_free(&capture);
+                    pet_control_push_command("{\"phase\":\"idle\"}");
+                }
+            } else {
+                HOST_LOG_WARNF("mic", "%s", "touch recording discarded");
+                pet_control_push_command("{\"phase\":\"idle\"}");
+            }
         }
         previous_touch_down = frame_input.touch_down;
 
@@ -386,26 +449,51 @@ int main(int argc, char **argv)
             int damage_bounds[4];
             int has_damage = pocket_runtime_damage_bounds(damage_bounds);
             const int *present_bounds = NULL;
+            int force_present = frame_input.touch_down || touch_visual_changed;
 
-            if (!first_render && !has_damage) {
+            if (!first_render && !has_damage && !force_present) {
                 empty_damage_frames++;
             } else {
-                if (first_render || !has_damage) {
+                if (first_render || !has_damage || force_present) {
                     full_present_frames++;
                 } else {
                     damage_frames++;
                     present_bounds = damage_bounds;
                 }
             }
-            if (first_render || has_damage) {
+            if (first_render || has_damage || force_present) {
                 struct framebuffer_present_stats present_stats = {0};
                 long long present_start_ns = profiling
                     ? monotonic_ns()
                     : -1;
+                const uint8_t *present_pixels = rendered;
+
+                if (frame_input.touch_down) {
+                    size_t required = (size_t)pocket_runtime_stride() *
+                                      (size_t)pocket_runtime_height();
+                    if (touch_overlay_capacity < required) {
+                        uint8_t *next_overlay = realloc(touch_overlay, required);
+
+                        if (next_overlay == NULL) {
+                            exit_code = 1;
+                            goto cleanup_runtime;
+                        }
+                        touch_overlay = next_overlay;
+                        touch_overlay_capacity = required;
+                    }
+                    memcpy(touch_overlay, rendered, required);
+                    draw_touch_border(
+                        touch_overlay,
+                        pocket_runtime_width(),
+                        pocket_runtime_height(),
+                        pocket_runtime_stride()
+                    );
+                    present_pixels = touch_overlay;
+                }
 
                 if (framebuffer_present_bgra_damage_timed(
                     &framebuffer,
-                    rendered,
+                    present_pixels,
                     pocket_runtime_width(),
                     pocket_runtime_height(),
                     pocket_runtime_stride(),
@@ -542,6 +630,8 @@ int main(int argc, char **argv)
 
 cleanup_runtime:
     pocket_runtime_shutdown();
+    rv1106_shutdown_globals();
+    free(touch_overlay);
 
 cleanup_devices:
     if (pet_control_started) pet_control_stop();

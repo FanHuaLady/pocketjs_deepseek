@@ -9,6 +9,20 @@
     "apiKey": "replace-with-your-api-key",
     "model": "deepseek-chat"
   },
+  "asr": {
+    "provider": "qwen",
+    "apiUrl": "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
+    "apiKey": "replace-with-your-asr-api-key-or-leave-empty-to-reuse-tts-key",
+    "model": "qwen3-asr-flash",
+    "seconds": 5,
+    "language": "zh"
+  },
+  "tts": {
+    "provider": "qwen",
+    "apiKey": "replace-with-your-tts-api-key",
+    "model": "qwen3-tts-flash",
+    "voice": "Momo"
+  },
   "web": {
     "port": 8080
   }

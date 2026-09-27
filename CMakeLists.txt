@@ -34,7 +34,10 @@ add_executable(pocket_host
     src/device/orientation.c
     src/device/touchscreen.c
     src/runtime/guest_file.c
+    src/runtime/audio_host.c
+    src/runtime/host_globals.c
     src/runtime/host_log.c
+    src/runtime/mic_host.c
     src/runtime/pet_config.c
     src/runtime/pet_host.c
     "${POCKETJS_RUNTIME_C}"
