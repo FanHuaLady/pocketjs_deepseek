@@ -1,6 +1,8 @@
 # RV1106 PocketJS 桌宠
 
-这是一个将 [PocketJS](https://github.com/pocket-nexus/pocketjs) 移植到 RV1106 开发板后的桌面宠物实验项目。
+![RV1106 桌宠实机展示](img/展示.jpg)
+
+把 [PocketJS](https://github.com/pocket-nexus/pocketjs) 带到 RV1106 开发板，让桌宠在小屏幕上动起来、听得见也能回应。项目目前整合了 **35 种表情与动作动画**，并将触摸、录音和动画交给开发板，将语音识别、AI 对话和语音合成交给电脑端处理。
 
 项目采用“开发板负责交互、电脑负责 AI 服务”的结构：
 
