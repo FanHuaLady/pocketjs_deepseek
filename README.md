@@ -1,82 +1,296 @@
 # RV1106 PocketJS 桌宠
 
-这是一个运行在 RV1106 开发板上的 PocketJS 桌宠项目。
+这是一个将 [PocketJS](https://github.com/pocket-nexus/pocketjs) 移植到 RV1106 开发板后的桌面宠物实验项目。
 
-当前结构：
-
-```text
-开发板 RV1106
-  ├─ pocket_host                 无参数启动
-  ├─ gif_demo.js
-  ├─ gif_demo.pak
-  ├─ 屏幕、触摸、麦克风、扬声器
-  └─ HTTP 控制端口 17890
-
-电脑
-  └─ pocket_pet
-       ├─ 终端文字对话
-       ├─ LLM 对话
-       ├─ Qwen ASR 语音转文字
-       ├─ Qwen TTS 文字转语音
-       └─ 通过 HTTP 控制开发板
-```
-
-开发板不会保存 LLM、ASR 或 TTS 的 API Key。AI 服务运行在电脑端。
-
-## 当前功能
-
-- GIF 在构建阶段转换为 PocketJS PNG sprite atlas。
-- 待机动画包含吃瓜、吃甜甜圈、墨镜装酷、扇风，每个动画默认保持 45 秒。
-- AI 思考时轮换播放认真思考、自信思考、记录。
-- AI 回复动画默认播放原始 GIF 时长的 2 倍。
-- Qwen TTS 当前音色为 `Bella`。
-- 屏幕触摸时显示白色边框。
-- 屏幕中间横向区域约为 `15%` 到 `85%`：
-  - 上半区：播放被摸头动画；动画结束后通知 AI，AI 回复时禁止再次使用摸头动画，默认可回退到 `love`。
-  - 下半区：按住录音，松开结束录音，然后执行 ASR、LLM、TTS。
-- 上位机是终端可执行程序，支持直接输入文字。
-- 上位机不使用麦克风；语音输入只通过开发板触摸屏完成。
-- 开发板的语音识别文本和 AI 文字回复会显示在上位机终端。
-
-## 目录
+项目采用“开发板负责交互、电脑负责 AI 服务”的结构：
 
 ```text
-assets/original_gif/       原始 GIF 素材
-assets/processed/          处理后的 PNG atlas 和素材清单
-app/gif_demo/              PocketJS 桌宠入口和动画状态机
-src/main.c                 RV1106 主循环、触摸分区、白边
-src/runtime/pet_host.c     开发板 HTTP 控制、音频和事件队列
-src/runtime/mic_host.c     麦克风录音
-tools/pet_server.ts        电脑端终端交互程序源码
-tools/build_pet_cli.sh     编译电脑端独立可执行文件
-tools/build_pet_cli_windows.ps1
-                           编译 Windows 版上位机
-tools/package_rv1106.sh    打包开发板运行目录
-tools/deploy_guest_rv1106.sh
-                           上传并启动开发板程序
-pet_config.example.json    不含真实 Key 的配置模板
-pet_config.json            本地运行配置，已被 Git 忽略
+触摸屏 / 麦克风 / 扬声器 / 动画
+              │
+              ▼
+        RV1106 pocket_host
+              │ HTTP
+              ▼
+电脑上的 pocket_pet
+              │
+       ASR / LLM / TTS
 ```
 
-## 电脑端启动
+开发板负责显示动画、采集触摸和语音、播放语音；电脑端负责语音识别、文字对话和语音合成。开发板不保存 AI 服务密钥。
 
-直接运行已经编译好的 Linux 版 `pocket_pet`：
+## 功能
+
+- PocketJS GIF 动画运行时，支持 RV1106 framebuffer 显示。
+- 屏幕触摸反馈和触摸区域交互。
+- 下半区按住说话，松开后由电脑端完成 ASR、LLM、TTS。
+- 上半区触发摸头动画，并通知电脑端生成回复。
+- 电脑端提供终端文字对话，不使用电脑麦克风。
+- AI 文字回复显示在电脑终端，语音回复通过开发板扬声器播放。
+- AI 思考、回复和待机状态使用不同动画。
+- Linux 和 Windows 均可构建电脑端独立可执行程序。
+- 开发板运行目录只需要 `pocket_host`、`gif_demo.js` 和 `gif_demo.pak`。
+
+## 交互方式
+
+### 电脑端文字对话
+
+在终端输入文字并按回车。电脑端会把请求发送给 LLM，同时通知开发板播放思考和语音回复。
+
+### 开发板触摸屏语音对话
+
+在屏幕中间的下半区按住说话，松开后停止录音。录音数据通过开发板 HTTP 接口被电脑端取走，然后依次执行：
+
+```text
+开发板录音 -> 电脑端 ASR -> LLM -> TTS -> 开发板播放语音
+```
+
+电脑端终端会显示识别出的文字和 AI 回复。
+
+## 运行环境
+
+### 电脑端
+
+- Linux、WSL 或 Windows。
+- [Bun](https://bun.sh/)：仅在从源码构建电脑端程序时需要。
+- Windows 构建需要 PowerShell。
+- 电脑和开发板处于同一网络，电脑可以访问开发板 HTTP 端口。
+
+运行已经构建好的独立程序时不需要安装 Bun，也不需要浏览器。
+
+### RV1106 开发板
+
+- RV1106 Linux 系统和对应 SDK。
+- 可用的 `/dev/fb0` framebuffer。
+- 触摸屏、麦克风和 ALSA 音频设备。
+- 能够运行本项目提供的 RV1106 交叉编译产物。
+
+本项目默认使用 `root@192.168.9.107` 作为示例开发板地址。发布或部署到其他设备时，请替换为实际地址。
+
+## 快速使用
+
+### 1. 准备配置
+
+```bash
+cp pet_config.example.json pet_config.json
+```
+
+编辑 `pet_config.json`，至少填写：
+
+- `device.url`：开发板 HTTP 地址，例如 `http://192.168.9.107:17890`。
+- `ai.apiUrl`、`ai.apiKey`、`ai.model`：LLM 服务配置。
+- `asr.apiKey`、`asr.model`：语音识别配置。
+- `tts.apiKey`、`tts.model`、`tts.voice`：语音合成配置。
+
+`pet_config.json` 已被 Git 忽略，不要把真实密钥提交到仓库。
+
+### 2. 启动开发板
+
+把以下三个文件放到开发板同一个目录：
+
+```text
+pocket_host
+gif_demo.js
+gif_demo.pak
+```
+
+然后执行：
+
+```bash
+chmod +x pocket_host
+./pocket_host
+```
+
+`pocket_host` 会自动读取可执行文件同目录下的 `gif_demo.js` 和 `gif_demo.pak`，不需要传启动参数。
+
+### 3. 启动电脑端
+
+Linux：
 
 ```bash
 ./pocket_pet
 ```
 
-程序启动后会进入终端对话：
+Windows：
 
-```text
-Pocket Pet 终端已启动
-设备: http://192.168.9.107:17890
-输入文字后按回车发送；开发板触摸屏下半区可进行语音对话；输入 Ctrl+C 退出。
+```powershell
+.\pocket_pet.exe
 ```
 
-输入文字并按回车即可发送。开发板触摸屏下半区按住说话、松开后，上位机会自动轮询录音并处理。
+推荐将可执行文件和 `pet_config.json` 放在同一个目录。程序查找配置的顺序是：
 
-开发板控制接口可以这样检查：
+1. `PET_CONFIG` 环境变量指定的路径。
+2. 可执行文件所在目录下的 `pet_config.json`。
+3. 当前工作目录下的 `pet_config.json`。
+
+## 从源码构建
+
+### 安装依赖
+
+```bash
+bun install
+cd third_party/pocketjs
+bun install
+cd ../..
+```
+
+构建 RV1106 目标还需要：
+
+- CMake、GNU Make、Git。
+- Rust nightly 和 Cargo。
+- RV1106 SDK。
+- SDK 对应的交叉编译器。
+
+设置 SDK 路径：
+
+```bash
+export ECHO_SDK_ROOT=/path/to/rv1106-sdk
+```
+
+`cmake/toolchains/rv1106.cmake` 会从 SDK 中查找交叉编译工具链。不同 SDK 的目录结构可能不同，如查找失败，请按本地 SDK 调整该 toolchain 文件。
+
+首次构建 RV1106 主程序时，还需要先构建 QuickJS 静态库：
+
+```bash
+tools/build_quickjs_rv1106.sh
+```
+
+### 构建开发板程序
+
+先生成 GIF 资源、PocketJS guest 和 pak：
+
+```bash
+tools/build_guest_rv1106.sh
+```
+
+再编译 RV1106 主机程序：
+
+```bash
+cmake --preset rv1106-release
+cmake --build --preset rv1106-release
+```
+
+主要产物：
+
+```text
+build/guest/gif_demo.js
+build/guest/gif_demo.pak
+build/rv1106-release/pocket_host
+```
+
+生成可直接复制到开发板的目录包：
+
+```bash
+tools/package_rv1106.sh
+```
+
+输出目录：
+
+```text
+build/rv1106-package/
+```
+
+### 构建电脑端
+
+Linux：
+
+```bash
+tools/build_pet_cli.sh
+```
+
+输出：
+
+```text
+build/pocket_pet
+```
+
+Windows，在 PowerShell 中执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build_pet_cli_windows.ps1
+```
+
+输出：
+
+```text
+build\pocket_pet.exe
+```
+
+也可以在 Linux 或 WSL 中执行：
+
+```bash
+bash tools/build_pet_cli_windows.sh
+```
+
+Windows 版本会带 Bun 运行时，用户不需要额外安装 Bun。
+
+## 部署到开发板
+
+默认部署命令：
+
+```bash
+RV1106_BOARD=root@192.168.9.107 \
+RV1106_REMOTE_DIR=/root/Flower/07_hello_deepseek \
+tools/deploy_guest_rv1106.sh
+```
+
+脚本会上传 `pocket_host`、`gif_demo.js` 和 `gif_demo.pak`，停止旧进程，更新文件并启动新程序。SSH 登录使用开发板当前配置的认证方式。
+
+需要指定音量时：
+
+```bash
+RV1106_AUDIO_VOLUME=1 tools/deploy_guest_rv1106.sh
+```
+
+其中 `0` 为静音，`1` 为恢复默认音量。调试时可以先使用 `RV1106_AUDIO_VOLUME=0`。
+
+手动停止开发板程序：
+
+```bash
+start-stop-daemon -K \
+  -p /tmp/pocket_host.pid \
+  -x /root/Flower/07_hello_deepseek/pocket_host
+```
+
+## 配置项
+
+完整示例见 [`pet_config.example.json`](pet_config.example.json)。
+
+常用配置包括：
+
+- `idleSeconds`：待机动画切换间隔。
+- `responseMultiplier`：AI 回复动画时长倍率。
+- `device.url`：开发板 HTTP 地址。
+- `ai.personaPrompt`：AI 人格和行为设定。
+- `asr`：Qwen 语音识别配置。
+- `tts.voice`：语音音色。
+
+只修改 API 密钥、模型、人格或音色时，重启电脑端 `pocket_pet` 即可，不需要重新编译。
+
+## 项目结构
+
+```text
+assets/original_gif/       原始 GIF 素材
+assets/processed/          运行时 PNG 素材和 pet-assets.ts
+app/gif_demo/              PocketJS guest 入口和动画状态机
+src/device/                framebuffer、方向和触摸屏
+src/runtime/               音频、录音、HTTP 和 PocketJS 宿主逻辑
+include/                   C 头文件
+tools/pet_server.ts        电脑端终端程序
+tools/build_*.sh           Linux、资源和 RV1106 构建脚本
+tools/build_*_windows.*    Windows 构建脚本
+tools/package_rv1106.sh    开发板目录打包脚本
+tools/deploy_guest_rv1106.sh
+                           开发板部署脚本
+third_party/pocketjs/      PocketJS 源码
+third_party/quickjs/       QuickJS 源码
+docs/                      架构和维护文档
+```
+
+`assets/processed/sprites.json` 和 `asset-registry.json` 是构建过程中的临时清单，不作为源码提交；构建脚本会自动重新生成。
+
+## 开发和排错
+
+检查开发板 HTTP 服务：
 
 ```bash
 curl --noproxy 192.168.9.107 \
@@ -85,217 +299,38 @@ curl --noproxy 192.168.9.107 \
 
 没有待处理事件时返回 HTTP `204` 是正常现象。
 
-## 编译电脑端程序
+开发板运行时环境变量：
 
-开发环境需要 Bun。执行：
+- `RV1106_PET_PORT`：HTTP 端口，默认 `17890`。
+- `RV1106_PET_CONFIG`：配置文件路径。
+- `RV1106_TOUCH_DEVICE`：触摸设备路径。
+- `RV1106_MIC_DEVICE`：麦克风 ALSA 设备，默认 `plughw:0,0`。
+- `RV1106_AUDIO_DEVICE`：ALSA 音频设备。
+- `RV1106_AUDIO_VOLUME`：启动时音量，`0` 到 `1`。
+- `RV1106_DISPLAY_ORIENTATION`、`RV1106_DISPLAY_ROTATION`：显示方向。
+- `RV1106_TOUCH_FLIP_X`、`RV1106_TOUCH_FLIP_Y`、`RV1106_TOUCH_SWAP_XY`：触摸坐标校正。
 
-```bash
-tools/build_pet_cli.sh
-```
+如果电脑端提示无法连接，请确认：
 
-输出文件：
+1. 开发板上的 `pocket_host` 正在运行。
+2. 电脑可以访问 `device.url`。
+3. 开发板防火墙或网络隔离没有阻断 `17890` 端口。
+4. Windows 下 `pet_config.json` 与 `pocket_pet.exe` 位于同一目录，或设置了 `PET_CONFIG`。
 
-```text
-build/pocket_pet
-```
+## 添加动画
 
-这是包含 Bun 运行时的独立 Linux 可执行文件，用户不需要安装 Bun，也不需要打开浏览器。
+1. 将原始 GIF 放入 `assets/original_gif/`。
+2. 在 `tools/prepare_gif_rv1106.ts` 的资源映射中加入动画名称。
+3. 运行 `tools/build_guest_rv1106.sh`。
+4. 根据需要在 `app/gif_demo/` 的状态机中引用新的动画。
 
-编译 Windows 版：
+## 开源说明
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\build_pet_cli_windows.ps1
-```
+本项目自身代码使用 MIT License，见 [`LICENSE`](LICENSE)。
 
-输出文件：
+`third_party/pocketjs` 和 `third_party/quickjs` 是保留在仓库中的第三方源码，分别遵循各自目录中的许可证文件。发布二进制文件时也应保留对应的版权和许可证信息。
 
-```text
-build\pocket_pet.exe
-```
+## 相关项目
 
-Windows 版默认显示终端窗口。电脑需要能够访问开发板的 `192.168.9.107`。程序会依次查找：
-
-```text
-1. PET_CONFIG 环境变量指定的路径
-2. pocket_pet.exe 同目录下的 pet_config.json
-3. 当前工作目录下的 pet_config.json
-```
-
-推荐将 `pocket_pet.exe` 和 `pet_config.json` 放在同一个目录。
-
-## 开发板启动
-
-登录开发板：
-
-```bash
-ssh root@192.168.9.107
-```
-
-启动已经部署好的版本：
-
-```bash
-cd /root/Flower/07_hello_deepseek
-chmod +x pocket_host
-./pocket_host
-```
-
-`pocket_host` 不带参数时，会自动读取可执行文件同目录下的 `gif_demo.js` 和 `gif_demo.pak`。因此开发板只需要复制下面三个文件：
-
-```text
-pocket_host
-gif_demo.js
-gif_demo.pak
-```
-
-也可以直接生成目录包：
-
-```bash
-tools/package_rv1106.sh
-```
-
-输出目录为 `build/rv1106-package/`，复制整个目录到开发板后执行：
-
-```bash
-cd build/rv1106-package
-./pocket_host
-```
-
-检查进程：
-
-```bash
-ps | grep pocket_host | grep -v grep
-```
-
-停止程序：
-
-```bash
-start-stop-daemon -K \
-  -p /tmp/pocket_host.pid \
-  -x /root/Flower/07_hello_deepseek/pocket_host
-```
-
-开发板程序默认监听：
-
-```text
-http://192.168.9.107:17890
-```
-
-## 配置
-
-本地首次配置：
-
-```bash
-cp pet_config.example.json pet_config.json
-```
-
-`pet_config.json` 不会提交到 Git。主要配置如下：
-
-- `idleSeconds`: 待机动画切换间隔，当前为 `45`。
-- `responseMultiplier`: AI 回应动画倍率，当前为 `2`。
-- `device.url`: 开发板 HTTP 地址。
-- `ai.apiUrl`、`ai.apiKey`、`ai.model`: LLM 配置。
-- `ai.personaPrompt`: AI 性格和关系设定。
-- `asr`: Qwen 语音识别配置。
-- `tts.voice`: TTS 音色，当前为 `Bella`。
-
-只修改 AI 性格、Key 或音色时：
-
-```text
-只需要重新启动 pocket_pet，不需要重新编译，也不需要重启开发板。
-```
-
-当前性格方向是：温柔、体贴、可靠的平等朋友，不是仆从或奴仆，不盲目服从，也不过度表现恋爱式依赖。
-
-## 构建
-
-首次准备依赖：
-
-```bash
-cd /home/flower/Echo-Mate/Flower/07_hello_deepseek
-bun install
-
-cd third_party/pocketjs
-bun install
-cd ../..
-```
-
-生成 GIF 处理资源、PocketJS guest 和 pak：
-
-```bash
-tools/build_guest_rv1106.sh
-```
-
-编译 RV1106 主机程序：
-
-```bash
-cmake --preset rv1106-release
-cmake --build --preset rv1106-release
-```
-
-构建产物：
-
-```text
-build/guest/gif_demo.js
-build/guest/gif_demo.pak
-build/rv1106-release/pocket_host
-build/rv1106-package/
-build/pocket_pet
-build/pocket_pet.exe
-```
-
-GIF 处理脚本：
-
-```text
-tools/prepare_gif_rv1106.ts
-```
-
-它会扫描 `assets/original_gif/*.gif`，生成 `assets/processed/`。当前处理策略保证 sprite cell 至少为 `64px`；点头、被摸头等细节较多的动画会使用 `128px` cell，避免被放大后发糊。
-
-添加新 GIF 时，需要在 `tools/prepare_gif_rv1106.ts` 的 `names` 映射表中增加中文文件名和英文 ID。
-
-## 重新部署
-
-构建完成后，将以下文件复制到开发板目录：
-
-```text
-build/rv1106-package/pocket_host
-build/rv1106-package/gif_demo.js
-build/rv1106-package/gif_demo.pak
-```
-
-例如：
-
-```bash
-scp build/rv1106-package/pocket_host \
-    build/rv1106-package/gif_demo.js \
-    build/rv1106-package/gif_demo.pak \
-    root@192.168.9.107:/root/Flower/07_hello_deepseek/
-```
-
-复制后停止旧程序，再按“开发板启动”章节执行 `./pocket_host`。
-
-也可以使用部署脚本自动打包、上传、停止旧进程并启动新版本：
-
-```bash
-RV1106_BOARD=root@192.168.9.107 \
-RV1106_REMOTE_DIR=/root/Flower/07_hello_deepseek \
-tools/deploy_guest_rv1106.sh
-```
-
-开发板静音测试：
-
-```bash
-RV1106_AUDIO_VOLUME=0 ./pocket_host
-```
-
-`RV1106_AUDIO_VOLUME` 取值范围为 `0` 到 `1`。设置为 `0` 时仍会正常生成、传输和消费 TTS 音频，但扬声器不会发声；不设置时默认为 `1`。
-
-## Git 注意事项
-
-编译产物、`.pak`、`pocket_host`、构建目录和本地 `pet_config.json` 已加入 `.gitignore`。提交前检查：
-
-```bash
-git status --short
-```
-
-不要提交包含真实 API Key 的 `pet_config.json`。
+- [PocketJS](https://github.com/pocket-nexus/pocketjs)
+- [Echo-Mate](https://github.com/No-Chicken/Echo-Mate)

@@ -14,6 +14,9 @@
       "@pocketjs/framework/input": [
         "./third_party/pocketjs/framework/src/input-api.ts"
       ],
+      "@pocketjs/framework/audio": [
+        "./third_party/pocketjs/framework/src/audio-api.ts"
+      ],
       "@pocketjs/framework/lifecycle": [
         "./third_party/pocketjs/framework/src/lifecycle.ts"
       ],

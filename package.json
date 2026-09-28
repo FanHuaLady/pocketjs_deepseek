@@ -2,6 +2,12 @@
   "name": "pocketjs-rv1106-gif",
   "private": true,
   "type": "module",
+  "scripts": {
+    "prepare:assets": "bun tools/prepare_gif_rv1106.ts",
+    "build:guest": "bash tools/build_guest_rv1106.sh",
+    "build:desktop:linux": "bash tools/build_pet_cli.sh",
+    "package:rv1106": "bash tools/package_rv1106.sh"
+  },
   "devDependencies": {
     "gifuct-js": "2.1.2"
   }

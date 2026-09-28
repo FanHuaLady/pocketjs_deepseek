@@ -17,6 +17,7 @@ Makefile
 *.bin
 *.pak
 pocket_host
+*.exe
 
 # Local runtime output
 *.log
@@ -26,6 +27,9 @@ run.log
 # JavaScript dependencies and generated PocketJS files
 node_modules/
 pet_config.json
+assets/processed/asset-registry.json
+assets/processed/sprites.json
+app/gif_demo/sprites.json
 third_party/pocketjs/node_modules/
 third_party/pocketjs/.cache/
 third_party/pocketjs/framework/src/styles.generated.ts
@@ -33,3 +37,7 @@ third_party/pocketjs/engine/ui-cabi/target/
 third_party/quickjs/.obj/
 third_party/quickjs/qjs
 third_party/quickjs/libquickjs.a
+
+# Local assistant/editor metadata
+.agents/
+.codex/
