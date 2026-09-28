@@ -103,6 +103,24 @@ static const char *audio_device_name(void)
     return device != NULL && device[0] != '\0' ? device : "hw:0,0";
 }
 
+static double audio_default_volume(void)
+{
+    const char *text = getenv("RV1106_AUDIO_VOLUME");
+    char *end;
+    double volume;
+
+    if (text == NULL || text[0] == '\0') return 1.0;
+    errno = 0;
+    volume = strtod(text, &end);
+    if (end == text || *end != '\0' || errno == ERANGE || !isfinite(volume)) {
+        HOST_LOG_WARNF("audio", "invalid RV1106_AUDIO_VOLUME=%s, using 1.0", text);
+        return 1.0;
+    }
+    if (volume < 0.0) return 0.0;
+    if (volume > 1.0) return 1.0;
+    return volume;
+}
+
 static int load_alsa_symbol(void **target, const char *name)
 {
     void *symbol = dlsym(alsa_api.library, name);
@@ -435,7 +453,7 @@ static int open_configured_pcm(AudioStream *stream, const char *device, int outp
 static void reset_stream(AudioStream *stream)
 {
     memset(stream, 0, sizeof(*stream));
-    stream->volume = 1.0;
+    stream->volume = audio_default_volume();
 }
 
 static int create_stream(int sample_rate, int channels)

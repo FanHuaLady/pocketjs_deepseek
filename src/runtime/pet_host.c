@@ -1,7 +1,5 @@
 #include "runtime/pet_host.h"
 
-#include "runtime/mic_host.h"
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -349,33 +347,6 @@ static void handle_command_request(
     send_response(fd, 202, "{\"ok\":true}");
 }
 
-static void handle_listen_request(int fd, const char *header)
-{
-    Rv1106MicCapture capture;
-    unsigned seconds = header_unsigned(header, "X-Record-Seconds:");
-    unsigned sample_rate = header_unsigned(header, "X-Audio-Rate:");
-    unsigned channels = header_unsigned(header, "X-Audio-Channels:");
-
-    if (seconds == 0) seconds = 5;
-    if (seconds > 15) seconds = 15;
-    if (sample_rate == 0) sample_rate = 16000;
-    if (channels == 0) channels = 1;
-
-    if (rv1106_mic_capture_pcm(sample_rate, channels, seconds, &capture) != 0) {
-        send_response(fd, 500, "{\"error\":\"microphone capture failed\"}");
-        return;
-    }
-    send_binary_response(
-        fd,
-        "application/octet-stream",
-        capture.data,
-        capture.length,
-        capture.sample_rate,
-        capture.channels
-    );
-    rv1106_mic_capture_free(&capture);
-}
-
 static void handle_voice_request(int fd)
 {
     uint8_t *body;
@@ -488,10 +459,6 @@ static void handle_client(int fd)
             initial_body_length,
             content_length
         );
-        return;
-    }
-    if (strcmp(path, "/listen") == 0) {
-        handle_listen_request(fd, request);
         return;
     }
     send_response(fd, 404, "{\"error\":\"not found\"}");

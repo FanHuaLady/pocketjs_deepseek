@@ -10,12 +10,14 @@
 #include "runtime/pocket_extension.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define TARGET_FRAME_NS 16666667LL
 #define FPS_SAMPLE_NS 1000000000LL
@@ -72,6 +74,35 @@ static int parse_frame_limit(const char *text, unsigned long *limit)
     }
     *limit = value;
     return 0;
+}
+
+static const char *default_guest_path(
+    const char *name,
+    char *path,
+    size_t capacity
+)
+{
+    ssize_t length;
+    char *separator;
+    int written;
+
+    if (path == NULL || capacity == 0) return name;
+    length = readlink("/proc/self/exe", path, capacity - 1);
+    if (length <= 0 || (size_t)length >= capacity - 1) return name;
+    path[length] = '\0';
+    separator = strrchr(path, '/');
+    if (separator == NULL) return name;
+    written = snprintf(
+        separator + 1,
+        capacity - (size_t)(separator + 1 - path),
+        "%s",
+        name
+    );
+    if (written < 0 ||
+        (size_t)written >= capacity - (size_t)(separator + 1 - path)) {
+        return name;
+    }
+    return path;
 }
 
 static long long monotonic_ns(void)
@@ -240,6 +271,10 @@ int main(int argc, char **argv)
     size_t touch_overlay_capacity = 0;
     uint8_t *script;
     uint8_t *pack = (uint8_t *)empty_pack;
+    const char *script_path;
+    const char *pack_path = NULL;
+    char default_script_path[PATH_MAX];
+    char default_pack_path[PATH_MAX];
     size_t script_length;
     size_t pack_length = 0;
     unsigned long frame_limit = 0;
@@ -270,6 +305,7 @@ int main(int argc, char **argv)
     int first_render = 1;
     int stats_bridge_enabled = 0;
     int pet_control_started = 0;
+    int pack_loaded = 0;
     PetAnimationConfig pet_animation_config;
     int exit_code = 0;
     int ok;
@@ -277,8 +313,22 @@ int main(int argc, char **argv)
     host_log_init();
     profiling = profile_enabled();
 
-    if (argc < 2 || argc > 4) {
-        fprintf(stderr, "usage: %s guest.js [guest.pak] [frames]\n", argv[0]);
+    if (argc == 1) {
+        script_path = default_guest_path(
+            "gif_demo.js",
+            default_script_path,
+            sizeof(default_script_path)
+        );
+        pack_path = default_guest_path(
+            "gif_demo.pak",
+            default_pack_path,
+            sizeof(default_pack_path)
+        );
+    } else if (argc >= 2 && argc <= 4) {
+        script_path = argv[1];
+        if (argc >= 3) pack_path = argv[2];
+    } else {
+        fprintf(stderr, "usage: %s [guest.js guest.pak [frames]]\n", argv[0]);
         return 2;
     }
     if (argc == 4 && parse_frame_limit(argv[3], &frame_limit) != 0) {
@@ -300,20 +350,21 @@ int main(int argc, char **argv)
     }
     pet_control_set_animation_config(&pet_animation_config);
 
-    script = guest_file_read(argv[1], &script_length);
+    script = guest_file_read(script_path, &script_length);
     if (script == NULL) {
         return 1;
     }
-    if (argc >= 3) {
-        pack = guest_file_read(argv[2], &pack_length);
+    if (pack_path != NULL) {
+        pack = guest_file_read(pack_path, &pack_length);
         if (pack == NULL) {
             free(script);
             return 1;
         }
+        pack_loaded = 1;
     }
     if (framebuffer_open("/dev/fb0", &framebuffer) != 0) {
         free(script);
-        if (argc >= 3) free(pack);
+        if (pack_loaded) free(pack);
         return 1;
     }
     if (touchscreen_open(
@@ -687,7 +738,7 @@ cleanup_runtime:
 
 cleanup_devices:
     if (pet_control_started) pet_control_stop();
-    if (argc >= 3) free(pack);
+    if (pack_loaded) free(pack);
     framebuffer_close(&framebuffer);
     touchscreen_close(&touchscreen);
     return exit_code;

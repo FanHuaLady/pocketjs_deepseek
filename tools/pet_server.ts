@@ -1,26 +1,31 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Buffer } from "node:buffer";
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import { PET_ASSETS } from "../assets/processed/pet-assets.ts";
 
-const projectDir = resolve(import.meta.dir, "..");
-const configPath = resolve(projectDir, process.env.PET_CONFIG ?? "pet_config.json");
+const configPaths = process.env.PET_CONFIG
+  ? [process.env.PET_CONFIG]
+  : [
+      resolve(dirname(process.execPath), "pet_config.json"),
+      resolve(process.cwd(), "pet_config.json"),
+    ];
 let fileConfig: {
   device?: { url?: string };
   ai?: { apiUrl?: string; apiKey?: string; model?: string; personaPrompt?: string };
-  asr?: { provider?: string; apiUrl?: string; apiKey?: string; model?: string; seconds?: number; language?: string };
+  asr?: { provider?: string; apiUrl?: string; apiKey?: string; model?: string; language?: string };
   tts?: { provider?: string; apiKey?: string; model?: string; voice?: string };
-  web?: { port?: number };
 } = {};
-try {
-  fileConfig = await Bun.file(configPath).json();
-} catch {
-  // Environment variables remain a valid configuration source.
+for (const configPath of configPaths) {
+  try {
+    fileConfig = await Bun.file(configPath).json();
+    break;
+  } catch {
+    // Try the next supported configuration location.
+  }
 }
-const registry = await Bun.file(resolve(projectDir, "assets/processed/asset-registry.json")).json() as {
-  defaultId: string;
-  assets: Array<{ id: string; kind: string; description: string; durationMs: number }>;
-};
+const registry = { defaultId: "expectant", assets: PET_ASSETS };
 const assets = new Map(registry.assets.map((asset) => [asset.id, asset]));
-const port = Number(process.env.PET_SERVER_PORT ?? fileConfig.web?.port ?? 8080);
 const deviceUrl = process.env.PET_DEVICE_URL ?? fileConfig.device?.url ?? "http://127.0.0.1:17890";
 const llmUrl = process.env.LLM_API_URL ?? fileConfig.ai?.apiUrl ?? "https://api.deepseek.com/chat/completions";
 const llmKey = process.env.LLM_API_KEY ?? fileConfig.ai?.apiKey;
@@ -32,7 +37,6 @@ const asrUrl = process.env.ASR_API_URL ??
   "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
 const asrKey = process.env.ASR_API_KEY ?? fileConfig.asr?.apiKey ?? fileConfig.tts?.apiKey;
 const asrModel = process.env.ASR_MODEL ?? fileConfig.asr?.model ?? "qwen3-asr-flash";
-const asrSeconds = Number(process.env.ASR_RECORD_SECONDS ?? fileConfig.asr?.seconds ?? 5);
 const asrLanguage = process.env.ASR_LANGUAGE ?? fileConfig.asr?.language ?? "zh";
 const ttsProvider = process.env.TTS_PROVIDER ?? fileConfig.tts?.provider ?? "qwen";
 const ttsKey = process.env.TTS_API_KEY ?? fileConfig.tts?.apiKey;
@@ -93,25 +97,6 @@ async function returnToIdle() {
   } catch {
     // Preserve the original LLM error if the board is unreachable.
   }
-}
-
-async function recordAudioFromDevice(seconds: number) {
-  const response = await fetch(`${deviceUrl}/listen`, {
-    method: "POST",
-    headers: {
-      "x-record-seconds": String(Math.max(1, Math.min(15, Math.round(seconds)))),
-      "x-audio-rate": "16000",
-      "x-audio-channels": "1",
-    },
-  });
-  if (!response.ok) throw new Error(`device listen returned HTTP ${response.status}`);
-  const sampleRate = Number(response.headers.get("x-audio-rate") ?? "16000");
-  const channels = Number(response.headers.get("x-audio-channels") ?? "1");
-  return {
-    sampleRate,
-    channels,
-    data: new Int16Array(await response.arrayBuffer()),
-  };
 }
 
 async function fetchQueuedVoiceFromDevice() {
@@ -349,30 +334,6 @@ async function synthesizeSpeech(text: string) {
   return synthesizeQwenSpeech(text);
 }
 
-const html = `<!doctype html>
-<meta charset="utf-8">
-<title>Pocket Pet</title>
-<style>
-body{font:16px sans-serif;max-width:680px;margin:40px auto;padding:0 16px;background:#101820;color:#eef}
-textarea{width:100%;height:90px;box-sizing:border-box;background:#182532;color:#fff;border:1px solid #48627d;padding:10px}
-button{margin-top:10px;padding:10px 18px;background:#70d6ff;border:0;color:#102238}
-pre{white-space:pre-wrap;background:#182532;padding:12px;min-height:80px}
-</style>
-<h1>Pocket Pet</h1>
-<textarea id="message" placeholder="和桌宠说点什么"></textarea><br>
-<button id="send">发送</button>
-<button id="voice">录音说话</button><pre id="reply"></pre>
-<script>
-const message=document.querySelector("#message"), reply=document.querySelector("#reply");
-document.querySelector("#send").onclick=async()=>{reply.textContent="思考中...";
-const r=await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({message:message.value})});
-reply.textContent=JSON.stringify(await r.json(),null,2)};
-document.querySelector("#voice").onclick=async()=>{reply.textContent="录音中...";
-const r=await fetch("/api/voice-chat",{method:"POST"});
-const body=await r.json(); if(body.transcript) message.value=body.transcript;
-reply.textContent=JSON.stringify(body,null,2)};
-</script>`;
-
 async function chatWithPet(
   message: string,
   options: { forbiddenAnimations?: string[]; fallbackAnimation?: string } = {},
@@ -454,7 +415,8 @@ async function pollQueuedVoice() {
     const pcm = await fetchQueuedVoiceFromDevice();
     if (!pcm) return;
     const transcript = await transcribeSpeech(pcm);
-    await chatWithPet(transcript);
+    console.log(`\n[开发板语音] ${transcript}`);
+    printChatResult(await chatWithPet(transcript));
   } catch (error) {
     const text = String(error);
     if (!text.includes("ECONNREFUSED") && !text.includes("fetch failed")) {
@@ -475,10 +437,10 @@ async function pollQueuedEvent() {
     if (!event?.message) return;
     const delayMs = Math.max(0, Math.min(10000, Math.round(event.delayMs ?? 0)));
     if (delayMs > 0) await sleep(delayMs);
-    await chatWithPet(event.message, {
+    printChatResult(await chatWithPet(event.message, {
       forbiddenAnimations: ["head_pat"],
       fallbackAnimation: "love",
-    });
+    }));
   } catch (error) {
     const text = String(error);
     if (!text.includes("ECONNREFUSED") && !text.includes("fetch failed")) {
@@ -489,38 +451,49 @@ async function pollQueuedEvent() {
   }
 }
 
-const server = Bun.serve({
-  port,
-  async fetch(request) {
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/") {
-      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
-    }
-    if (request.method === "POST" && url.pathname === "/api/chat") {
-      const body = await request.json() as { message?: string };
-      const message = body.message?.trim();
-      if (!message) return Response.json({ error: "message is required" }, { status: 400 });
-      const result = await chatWithPet(message);
-      return Response.json(result.body, { status: result.status });
-    }
-    if (request.method === "POST" && url.pathname === "/api/voice-chat") {
-      try {
-        const pcm = await recordAudioFromDevice(asrSeconds);
-        const transcript = await transcribeSpeech(pcm);
-        const result = await chatWithPet(transcript);
-        return Response.json({ transcript, ...result.body }, { status: result.status });
-      } catch (error) {
-        await returnToIdle();
-        return Response.json({ error: String(error) }, { status: 502 });
-      }
-    }
-    return new Response("Not found", { status: 404 });
-  },
-});
+function printChatResult(result: {
+  body: { reply?: string; animation?: string; error?: string; ttsError?: string };
+  status: number;
+}) {
+  if (result.body.reply) console.log(`[桌宠] ${result.body.reply}`);
+  if (result.body.animation) console.log(`[动画] ${result.body.animation}`);
+  if (result.body.ttsError) console.warn(`[语音合成失败] ${result.body.ttsError}`);
+  if (result.body.error) console.error(`[处理失败] ${result.body.error}`);
+}
 
-console.log(`pet server: http://0.0.0.0:${server.port}`);
-console.log(`device: ${deviceUrl}`);
-setInterval(() => {
+let inputBusy = false;
+async function submitText(message: string) {
+  if (inputBusy) {
+    console.log("当前还有一条消息正在处理，请稍后再输入。");
+    return;
+  }
+  inputBusy = true;
+  try {
+    console.log("[桌宠] 思考中...");
+    printChatResult(await chatWithPet(message));
+  } finally {
+    inputBusy = false;
+  }
+}
+
+console.log("Pocket Pet 终端已启动");
+console.log(`设备: ${deviceUrl}`);
+console.log("输入文字后按回车发送；开发板触摸屏下半区可进行语音对话；输入 Ctrl+C 退出。\n");
+const pollTimer = setInterval(() => {
   void pollQueuedVoice();
   void pollQueuedEvent();
 }, 1000);
+
+const readline = createInterface({ input, output, prompt: "> " });
+readline.prompt();
+readline.on("SIGINT", () => readline.close());
+readline.on("line", (line) => {
+  const message = line.trim();
+  if (message) void submitText(message);
+  readline.prompt();
+});
+readline.on("close", async () => {
+  clearInterval(pollTimer);
+  await returnToIdle();
+  process.exit(0);
+});

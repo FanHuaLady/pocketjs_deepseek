@@ -7,17 +7,23 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 : "${RV1106_BOARD:?set RV1106_BOARD=root@your-board-ip}"
 REMOTE_DIR="${RV1106_REMOTE_DIR:-/root/pocketjs-gif}"
 
-HOST="${PROJECT_DIR}/build/rv1106-release/pocket_host"
-GUEST_JS="${PROJECT_DIR}/build/guest/gif_demo.js"
-GUEST_PAK="${PROJECT_DIR}/build/guest/gif_demo.pak"
+PACKAGE_DIR="${PROJECT_DIR}/build/rv1106-package"
 
-for file in "${HOST}" "${GUEST_JS}" "${GUEST_PAK}"; do
-    if [ ! -f "${file}" ]; then
-        echo "missing ${file}" >&2
-        exit 1
-    fi
-done
+"${SCRIPT_DIR}/package_rv1106.sh"
 
 ssh "${RV1106_BOARD}" "mkdir -p '${REMOTE_DIR}'"
-scp "${HOST}" "${GUEST_JS}" "${GUEST_PAK}" "${RV1106_BOARD}:${REMOTE_DIR}/"
-ssh "${RV1106_BOARD}" "cd '${REMOTE_DIR}' && chmod +x pocket_host && ./pocket_host gif_demo.js gif_demo.pak 0"
+scp "${PACKAGE_DIR}/pocket_host" \
+    "${RV1106_BOARD}:${REMOTE_DIR}/.pocket_host.new"
+scp "${PACKAGE_DIR}/gif_demo.js" \
+    "${PACKAGE_DIR}/gif_demo.pak" \
+    "${RV1106_BOARD}:${REMOTE_DIR}/"
+
+REMOTE_VOLUME="${RV1106_AUDIO_VOLUME:-1}"
+ssh "${RV1106_BOARD}" \
+    "cd '${REMOTE_DIR}' && \
+     start-stop-daemon -K -q -p /tmp/pocket_host.pid 2>/dev/null || true; \
+     mv .pocket_host.new pocket_host; \
+     chmod +x pocket_host; \
+     RV1106_AUDIO_VOLUME='${REMOTE_VOLUME}' \
+       start-stop-daemon -S -b -m -p /tmp/pocket_host.pid \
+       -x '${REMOTE_DIR}/pocket_host' --"
