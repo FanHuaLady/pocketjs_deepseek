@@ -58,10 +58,9 @@ HTTP 服务默认监听 `17890` 端口，主要接口如下：
 ## 构建产物关系
 
 ```text
-assets/original_gif/
+本地原始 GIF（可选）
   -> tools/prepare_gif_rv1106.ts
-  -> assets/processed/*.png
-  -> app/gif_demo/pet-assets.ts
+  -> assets/processed/*.png + sprites.json + pet-assets.ts
   -> tools/build_guest_rv1106.sh
   -> build/guest/gif_demo.js + gif_demo.pak
 
@@ -70,7 +69,7 @@ src/*.c + third_party/quickjs + PocketJS runtime
   -> build/rv1106-release/pocket_host
 ```
 
-`sprites.json` 和 `asset-registry.json` 只用于资源构建过程。`pet-assets.ts` 是 guest 编译所需的生成源码，因此保留在仓库中，方便电脑端和开发板端直接构建。
+仓库保留处理后的 PNG、`sprites.json` 和 `pet-assets.ts`，因此发布版本不需要携带原始 GIF。`build_guest_rv1106.sh` 默认使用仓库中的处理后资源；设置 `RV1106_REGENERATE_ASSETS=1` 时才会读取本地原始 GIF 并重新生成资源。`asset-registry.json` 只用于资源构建过程，不提交。
 
 ## 配置边界
 

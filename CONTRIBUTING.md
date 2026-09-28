@@ -41,5 +41,5 @@ tools/build_pet_cli.sh
 - 一个提交只解决一个主题。
 - 不提交 `pet_config.json`、API Key、设备日志和 `build/`。
 - 修改运行协议或环境变量时同步更新 README。
-- 修改动画资源时同时说明资源来源和许可证。
+- 修改动画资源时提交处理后的 PNG、`sprites.json` 和 `pet-assets.ts`，不要提交 `assets/original_gif/` 中的原始 GIF；同时说明资源来源和许可证。
 - 提交前确认开发板端和电脑端至少可以完成一次文字对话或语音对话。

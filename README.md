@@ -158,10 +158,16 @@ tools/build_quickjs_rv1106.sh
 
 ### 构建开发板程序
 
-先生成 GIF 资源、PocketJS guest 和 pak：
+构建脚本默认使用仓库中已提交的处理后 PNG 和 `sprites.json`，不需要原始 GIF：
 
 ```bash
 tools/build_guest_rv1106.sh
+```
+
+如果本地有原始 GIF 并且需要重新生成动画资源：
+
+```bash
+RV1106_REGENERATE_ASSETS=1 tools/build_guest_rv1106.sh
 ```
 
 再编译 RV1106 主机程序：
@@ -271,8 +277,8 @@ start-stop-daemon -K \
 ## 项目结构
 
 ```text
-assets/original_gif/       原始 GIF 素材
-assets/processed/          运行时 PNG 素材和 pet-assets.ts
+assets/original_gif/       本地可选的原始 GIF，不提交到仓库
+assets/processed/          已提交的运行时 PNG、sprites.json 和 pet-assets.ts
 app/gif_demo/              PocketJS guest 入口和动画状态机
 src/device/                framebuffer、方向和触摸屏
 src/runtime/               音频、录音、HTTP 和 PocketJS 宿主逻辑
@@ -288,7 +294,7 @@ third_party/quickjs/       QuickJS 源码
 docs/                      架构和维护文档
 ```
 
-`assets/processed/sprites.json` 和 `asset-registry.json` 是构建过程中的临时清单，不作为源码提交；构建脚本会自动重新生成。
+仓库提交的是处理后的 PNG、`sprites.json` 和 `pet-assets.ts`，因此没有原始 GIF 也可以直接构建开发板 guest。`asset-registry.json` 是构建过程中的临时清单，不作为源码提交。
 
 ## 开发和排错
 
@@ -321,10 +327,11 @@ curl --noproxy 192.168.9.107 \
 
 ## 添加动画
 
-1. 将原始 GIF 放入 `assets/original_gif/`。
-2. 在 `tools/prepare_gif_rv1106.ts` 的资源映射中加入动画名称。
-3. 运行 `tools/build_guest_rv1106.sh`。
-4. 根据需要在 `app/gif_demo/` 的状态机中引用新的动画。
+1. 准备本地原始 GIF，并放入被 Git 忽略的 `assets/original_gif/`。
+2. 在 `tools/prepare_gif_rv1106.ts` 的资源映射中加入中文文件名和英文 ID。
+3. 运行 `bun tools/prepare_gif_rv1106.ts` 重新生成处理后的资源。
+4. 提交更新后的 `assets/processed/`，不要提交 `assets/original_gif/`。
+5. 根据需要在 `app/gif_demo/` 的状态机中引用新的动画。
 
 ## 开源说明
 

@@ -34,7 +34,19 @@ if [ ! -d "${PROJECT_DIR}/node_modules/gifuct-js" ]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
-"${BUN}" "${SCRIPT_DIR}/prepare_gif_rv1106.ts"
+if [ "${RV1106_REGENERATE_ASSETS:-0}" = "1" ]; then
+    if ! compgen -G "${PROJECT_DIR}/assets/original_gif/*.gif" >/dev/null 2>&1; then
+        echo "RV1106_REGENERATE_ASSETS=1 but no GIF files found in assets/original_gif/" >&2
+        exit 1
+    fi
+    "${BUN}" "${SCRIPT_DIR}/prepare_gif_rv1106.ts"
+elif [ ! -f "${PROCESSED_DIR}/sprites.json" ]; then
+    echo "missing processed sprite manifest: ${PROCESSED_DIR}/sprites.json" >&2
+    echo "add local GIF files under assets/original_gif/ or restore the processed assets" >&2
+    exit 1
+else
+    echo "using checked-in processed assets"
+fi
 trap 'rm -f "${APP_DIR}/sprites.json" "${SPRITE_LINK}"' EXIT
 cp "${PROCESSED_DIR}/sprites.json" "${APP_DIR}/sprites.json"
 ln -s ../../assets/processed "${SPRITE_LINK}"

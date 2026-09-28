@@ -27,8 +27,8 @@ run.log
 # JavaScript dependencies and generated PocketJS files
 node_modules/
 pet_config.json
+assets/original_gif/
 assets/processed/asset-registry.json
-assets/processed/sprites.json
 app/gif_demo/sprites.json
 third_party/pocketjs/node_modules/
 third_party/pocketjs/.cache/
